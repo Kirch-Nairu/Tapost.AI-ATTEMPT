@@ -3,13 +3,15 @@ import { useTaskStore } from '../stores/taskStore';
 import { AlarmSound } from '../types/task';
 import { audioService } from '../services/audioService';
 import { notificationService } from '../services/notificationService';
-import { Bell, Volume2, Clock, Moon, Sun, ShieldCheck, Database, RefreshCw, Trash2, Check } from 'lucide-react';
+import { Bell, Volume2, Clock, Moon, Sun, ShieldCheck, Database, RefreshCw, Trash2, Check, BatteryCharging, ShieldAlert, Smartphone, Info } from 'lucide-react';
 
 export const SettingsScreen: React.FC = () => {
   const { settings, updateSettings, initializeStore } = useTaskStore();
 
   const [permState, setPermState] = useState(() => notificationService.getPermissionState());
   const [testNotifSent, setTestNotifSent] = useState(false);
+  const [isBatteryExempt, setIsBatteryExempt] = useState(() => notificationService.isBatteryExempt());
+  const [showBatteryRationale, setShowBatteryRationale] = useState(false);
 
   const handleRequestNotifications = async () => {
     const granted = await notificationService.requestPermission();
@@ -29,6 +31,12 @@ export const SettingsScreen: React.FC = () => {
     });
     setTestNotifSent(true);
     setTimeout(() => setTestNotifSent(false), 3000);
+  };
+
+  const handleDisableBatteryOptimization = async () => {
+    await notificationService.triggerBatteryOptimizationIntent();
+    setIsBatteryExempt(true);
+    setShowBatteryRationale(false);
   };
 
   return (
@@ -130,6 +138,88 @@ export const SettingsScreen: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Battery Optimization & Alarm Reliability Section */}
+      <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
+            <BatteryCharging className="w-4 h-4 text-[#0F6E56]" />
+            <span>Battery Optimization (Doze Mode)</span>
+          </div>
+
+          <span
+            className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
+              isBatteryExempt
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+            }`}
+          >
+            {isBatteryExempt ? 'Unrestricted' : 'Optimized'}
+          </span>
+        </div>
+
+        <p className="text-xs text-zinc-500">
+          Aggressive Android Doze & OEM battery savers (Samsung, Xiaomi, etc.) can delay or suppress scheduled alarms when your device screen is off.
+        </p>
+
+        <div className="pt-1 flex items-center gap-2">
+          {!isBatteryExempt ? (
+            <button
+              onClick={() => setShowBatteryRationale(true)}
+              className="w-full py-2.5 px-3 rounded-xl bg-[#993C1D] hover:bg-[#803117] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              <span>Disable Battery Optimization</span>
+            </button>
+          ) : (
+            <div className="w-full py-2.5 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center justify-center gap-1.5 border border-emerald-200/60">
+              <Check className="w-4 h-4 text-emerald-600" />
+              <span>Alarm Priority Exempted from Battery Saver</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Rationale Modal */}
+      {showBatteryRationale && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+          <div className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl p-5 shadow-2xl border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center gap-2 text-[#993C1D]">
+              <Smartphone className="w-6 h-6 animate-pulse" />
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Why Exempt Tapost?</h3>
+            </div>
+
+            <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              <p>
+                When your device is locked or asleep, Android&apos;s <strong>Doze Mode</strong> suspends background background timers to save battery.
+              </p>
+              <p>
+                To guarantee your session alarms ring <strong>exactly to the second</strong> with full-screen ringers and sound, Tapost requires an exemption from Android Battery Optimizations.
+              </p>
+              <div className="p-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-[11px] text-zinc-500 flex items-start gap-2">
+                <Info className="w-4 h-4 text-[#0F6E56] shrink-0 mt-0.5" />
+                <span>Tapost uses minimal battery and only activates exact timers when you explicitly tap Start on a task session.</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleDisableBatteryOptimization}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-[#0F6E56] hover:bg-[#0c5945] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <Check className="w-4 h-4" />
+                <span>Allow Exemption</span>
+              </button>
+              <button
+                onClick={() => setShowBatteryRationale(false)}
+                className="py-2.5 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-600 dark:text-zinc-400 font-semibold text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Session & Snooze Configuration */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-4">
