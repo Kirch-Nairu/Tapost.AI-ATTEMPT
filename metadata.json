@@ -1,0 +1,6 @@
+{
+  "name": "Tapost",
+  "description": "Task & built-in session alarm app with auto countdown, snooze, history analytics, and custom tones.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
