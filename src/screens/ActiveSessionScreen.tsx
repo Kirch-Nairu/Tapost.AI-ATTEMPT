@@ -113,11 +113,19 @@ export const ActiveSessionScreen: React.FC = () => {
         </div>
 
         {/* Task Title & Info */}
-        <div className="mt-8 max-w-xs space-y-1">
+        <div className="mt-6 max-w-xs space-y-1">
           <h1 className="text-xl font-bold line-clamp-2 leading-tight">{activeTask.title}</h1>
           {activeTask.notes && (
             <p className="text-xs text-emerald-100/70 line-clamp-2">{activeTask.notes}</p>
           )}
+
+          {/* Alarm Status Badge */}
+          <div className="pt-2 flex justify-center">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-400/40 text-[11px] font-semibold text-emerald-200 backdrop-blur-md">
+              <Bell className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span>Alarm Armed • Rings over lock screen when timer ends</span>
+            </div>
+          </div>
         </div>
       </div>
 

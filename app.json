@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Tapost",
+    "slug": "tapost-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F6E56"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tapost.app",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio", "remote-notification", "fetch"],
+        "NSCameraUsageDescription": "Tapost does not require camera access.",
+        "NSMicrophoneUsageDescription": "Tapost does not require microphone access."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F6E56"
+      },
+      "package": "com.tapost.app",
+      "permissions": [
+        "SCHEDULE_EXACT_ALARM",
+        "USE_EXACT_ALARM",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "SYSTEM_ALERT_WINDOW",
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification_icon.png",
+          "color": "#0F6E56",
+          "sounds": [
+            "./assets/sounds/alarm_chime.wav",
+            "./assets/sounds/zen_gong.wav",
+            "./assets/sounds/digital_pulse.wav"
+          ]
+        }
+      ]
+    ]
+  }
+}

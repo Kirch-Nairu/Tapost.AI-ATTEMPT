@@ -73,8 +73,9 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
           // Alarm should fire!
           set({ ringingTaskId: activeTask.id });
           audioService.startRepeatingAlarm(activeTask.alarm_sound || settings.alarm_sound, settings.sound_volume);
-          notificationService.showNotification(`Tapost Alarm: ${activeTask.title}`, {
-            body: 'Your scheduled session timer has ended. Tap to respond!',
+          notificationService.startContinuousVibration();
+          notificationService.showNotification(`Tapost Session Ended: ${activeTask.title}`, {
+            body: 'Your scheduled focus session has completed! Tap to stop alarm.',
           });
         }
       }
@@ -111,8 +112,9 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
                 currentActive.alarm_sound || currentSettings.alarm_sound,
                 currentSettings.sound_volume
               );
-              notificationService.showNotification(`Tapost Alarm: ${currentActive.title}`, {
-                body: 'Session completed! Mark done, snooze, or dismiss.',
+              notificationService.startContinuousVibration();
+              notificationService.showNotification(`Tapost Session Ended: ${currentActive.title}`, {
+                body: 'Your scheduled focus session has completed! Tap to stop alarm.',
               });
             } else {
               set({ activeRemainingSeconds: leftSec });
@@ -173,6 +175,7 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   markTaskCompleted: async (taskId) => {
     audioService.stopAlarm();
+    notificationService.stopVibration();
     const { tasks } = get();
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -194,6 +197,7 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   snoozeTaskAlarm: async (taskId) => {
     audioService.stopAlarm();
+    notificationService.stopVibration();
     const { tasks, settings } = get();
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -222,6 +226,7 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   dismissTaskAlarm: async (taskId) => {
     audioService.stopAlarm();
+    notificationService.stopVibration();
     const { tasks } = get();
     const updated = await taskRepository.updateTask(taskId, {
       status: 'dismissed',
@@ -239,6 +244,7 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   cancelActiveSession: async (taskId) => {
     audioService.stopAlarm();
+    notificationService.stopVibration();
     const updated = await taskRepository.updateTask(taskId, {
       status: 'dismissed',
     });

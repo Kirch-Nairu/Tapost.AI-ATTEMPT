@@ -13,6 +13,21 @@ Unlike traditional task planners where alarms must be configured separately in a
 
 ---
 
+## 🔔 Alarm Reliability on Task Session End — Platform Guarantees & Expo Matrix
+
+When a task session timer ends, Tapost triggers an audible alarm, repeating vibration, and a full-screen alert. The table below details which platform guarantees are **fully met out-of-the-box in Expo managed workflow** vs. **which require a native config plugin or bare workflow**:
+
+| Requirement / Guarantee | Android Expo Managed | Android Bare / Notifee Plugin | iOS Expo Managed | Status & Implementation Details |
+| :--- | :--- | :--- | :--- | :--- |
+| **High Importance Channel** (`IMPORTANCE_MAX` / `HIGH`) | ✅ Fully Met | ✅ Fully Met | N/A | Created via `notificationService.ts` with custom `alarm_chime.wav` raw sound resource and max importance. |
+| **Exact Alarm Triggers under Doze Mode** (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`) | ✅ Fully Met | ✅ Fully Met | ✅ Best Effort | Declared in `app.json` permissions list. Prevents 5–15 min Doze mode delays on Android 12+. |
+| **Battery Optimization Exemption** (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | ✅ Fully Met via Intent | ✅ Fully Met via Intent | N/A | Interactive rationale modal in Settings & Session screen requesting exemption from OEM battery suppressors (Samsung, Xiaomi, etc.). |
+| **Full-Screen Activity over Lock Screen** (`android:fullScreenIntent`) | ⚠️ Config Plugin Needed | ✅ Fully Met (`Notifee.displayNotification`) | ⚠️ Banner Alert | `expo-notifications` displays heads-up alerts. Launching full-screen Intent over lock screen requires Notifee or custom Expo config plugin (`@notifee/react-native`). |
+| **Continuous Sound & Vibration Loop** | ✅ Fully Met | ✅ Fully Met | ✅ Fully Met | Audio & Vibration repeat continuously via `audioService` & `notificationService` until user taps Stop, Snooze, or Mark Done. |
+| **Alarm when App Force-Killed** | ⚠️ Best Effort via AlarmManager | ✅ Fully Met via Foreground Service | ❌ OS Restriction | iOS sandbox strictly forbids JS execution when app is force-closed. Android uses native AlarmManager exact alarm intent. |
+
+---
+
 ## 🛠️ Architecture & Data Layer
 
 - **Framework**: React / React Native Expo architecture with Vite preview support
