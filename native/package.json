@@ -9,18 +9,18 @@
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "test:domain": "tsc -p tsconfig.domain.json && node --test tests/session.test.mjs tests/session-controller.test.mjs",
-    "doctor": "expo-doctor"
+    "doctor": "npx expo-doctor@latest"
   },
   "dependencies": {
-    "expo": "~57.0.17",
-    "expo-notifications": "~57.0.17",
-    "expo-sqlite": "~57.0.2",
-    "expo-status-bar": "~57.0.1",
+    "expo": "57.0.20",
+    "expo-notifications": "57.0.17",
+    "expo-sqlite": "57.0.2",
+    "expo-status-bar": "57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },
   "devDependencies": {
-    "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "@types/react": "19.2.2",
+    "typescript": "6.0.3"
   }
 }

@@ -5,7 +5,8 @@ on:
   pull_request:
 
 jobs:
-  verify:
+  web:
+    name: Web gates
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,11 +18,64 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
+      - name: Install web dependencies
         run: npm ci
 
-      - name: Type check
+      - name: Web type check
         run: npm run lint
 
-      - name: Production build
+      - name: Web production build
         run: npm run build
+
+  android:
+    name: Android native gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install native dependencies
+        working-directory: native
+        run: npm install --no-audit --no-fund
+
+      - name: Native domain tests
+        working-directory: native
+        run: npm run test:domain
+
+      - name: Native TypeScript check
+        working-directory: native
+        run: npm run typecheck
+
+      - name: Expo project validation
+        working-directory: native
+        run: npm run doctor
+
+      - name: Android prebuild
+        working-directory: native
+        env:
+          CI: '1'
+        run: npm run prebuild:android
+
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
