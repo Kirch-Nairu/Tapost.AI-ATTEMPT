@@ -14,10 +14,9 @@ export default function App() {
   const { currentScreen, initializeStore, isLoading, settings } = useTaskStore();
 
   useEffect(() => {
-    initializeStore();
+    void initializeStore();
   }, [initializeStore]);
 
-  // Sync theme class
   useEffect(() => {
     if (settings.theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -33,7 +32,7 @@ export default function App() {
           T
         </div>
         <p className="text-sm font-semibold tracking-wide text-zinc-300">Loading Tapost...</p>
-        <p className="text-xs text-zinc-500 mt-1">Initialising local database & alarm triggers</p>
+        <p className="text-xs text-zinc-500 mt-1">Restoring local tasks and alarm runtime</p>
       </div>
     );
   }
