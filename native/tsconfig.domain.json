@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": ".domain-build",
+    "rootDir": "."
+  },
+  "include": ["src/domain/session.ts", "src/types/task.ts"]
+}
