@@ -153,11 +153,8 @@ export const TaskDetailScreen: React.FC = () => {
             </span>
             <div className="text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
               <p>Started: {formatIsoSafe(task.actual_start)}</p>
-              {task.actual_end && (
-                <p>
-                  {task.status === 'active' ? 'Target end' : 'Ended'}: {formatIsoSafe(task.actual_end)}
-                </p>
-              )}
+              {task.target_end && <p>Target end: {formatIsoSafe(task.target_end)}</p>}
+              {task.actual_end && <p>Ended: {formatIsoSafe(task.actual_end)}</p>}
             </div>
           </div>
         )}
