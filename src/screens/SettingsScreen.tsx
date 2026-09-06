@@ -3,22 +3,42 @@ import { useTaskStore } from '../stores/taskStore';
 import { AlarmSound } from '../types/task';
 import { audioService } from '../services/audioService';
 import { notificationService } from '../services/notificationService';
-import { Bell, Volume2, Clock, Moon, Sun, ShieldCheck, Database, RefreshCw, Trash2, Check, BatteryCharging, ShieldAlert, Smartphone, Info } from 'lucide-react';
+import { alarmEngine } from '../services/alarm';
+import {
+  Bell,
+  Volume2,
+  Clock,
+  Moon,
+  Sun,
+  ShieldCheck,
+  Database,
+  RefreshCw,
+  Trash2,
+  Check,
+  Info,
+  MonitorSmartphone,
+  X,
+} from 'lucide-react';
 
 export const SettingsScreen: React.FC = () => {
-  const { settings, updateSettings, initializeStore } = useTaskStore();
+  const {
+    settings,
+    updateSettings,
+    clearAllTasks,
+    resetDemoData,
+  } = useTaskStore();
 
-  const [permState, setPermState] = useState(() => notificationService.getPermissionState());
+  const [permState, setPermState] = useState(() => alarmEngine.getPermissionState());
   const [testNotifSent, setTestNotifSent] = useState(false);
-  const [isBatteryExempt, setIsBatteryExempt] = useState(() => notificationService.isBatteryExempt());
-  const [showBatteryRationale, setShowBatteryRationale] = useState(false);
+  const capabilities = alarmEngine.getCapabilities();
 
   const handleRequestNotifications = async () => {
-    const granted = await notificationService.requestPermission();
-    setPermState(notificationService.getPermissionState());
+    const granted = await alarmEngine.requestPermission();
+    setPermState(alarmEngine.getPermissionState());
+
     if (granted) {
-      notificationService.showNotification('Tapost Notifications Enabled!', {
-        body: 'You will receive on-time alarm alerts when task sessions complete.',
+      notificationService.showNotification('Tapost Notifications Enabled', {
+        body: 'Browser notifications can alert you while the Tapost web runtime is available.',
       });
       setTestNotifSent(true);
       setTimeout(() => setTestNotifSent(false), 3000);
@@ -27,27 +47,20 @@ export const SettingsScreen: React.FC = () => {
 
   const handleSendTestNotification = () => {
     notificationService.showNotification('Tapost Alarm Test', {
-      body: 'This is how your session alarm notification will sound and vibrate.',
+      body: 'This is a browser notification test from Tapost.',
     });
+    notificationService.triggerSingleVibration();
     setTestNotifSent(true);
     setTimeout(() => setTestNotifSent(false), 3000);
   };
 
-  const handleDisableBatteryOptimization = async () => {
-    await notificationService.triggerBatteryOptimizationIntent();
-    setIsBatteryExempt(true);
-    setShowBatteryRationale(false);
-  };
-
   return (
     <div className="p-4 space-y-5">
-      {/* Header */}
       <div className="pt-2">
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
-        <p className="text-xs text-zinc-500">Configure alarms, notifications & theme</p>
+        <p className="text-xs text-zinc-500">Configure alarms, notifications, timers, and local data</p>
       </div>
 
-      {/* Alarm Sound Picker */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
           <Volume2 className="w-4 h-4 text-[#0F6E56]" />
@@ -63,7 +76,7 @@ export const SettingsScreen: React.FC = () => {
           ].map((tone) => (
             <div
               key={tone.id}
-              onClick={() => updateSettings({ alarm_sound: tone.id as AlarmSound })}
+              onClick={() => void updateSettings({ alarm_sound: tone.id as AlarmSound })}
               className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
                 settings.alarm_sound === tone.id
                   ? 'bg-[#E1F5EE] dark:bg-emerald-950/60 border-[#0F6E56] shadow-xs'
@@ -78,8 +91,8 @@ export const SettingsScreen: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  onClick={(event) => {
+                    event.stopPropagation();
                     audioService.playPreview(tone.id as AlarmSound, settings.sound_volume);
                   }}
                   className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-700 hover:bg-emerald-100 text-[#0F6E56] text-[10px] font-bold shadow-2xs"
@@ -97,12 +110,11 @@ export const SettingsScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Notifications Section */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
             <Bell className="w-4 h-4 text-[#0F6E56]" />
-            <span>Local Notification Status</span>
+            <span>Browser Notifications</span>
           </div>
 
           <span
@@ -116,17 +128,36 @@ export const SettingsScreen: React.FC = () => {
           </span>
         </div>
 
-        <p className="text-xs text-zinc-500">
-          Local notifications trigger the alarm alert when task session timers finish.
-        </p>
+        <div className="flex items-center justify-between rounded-xl bg-zinc-50 dark:bg-zinc-800/50 p-3">
+          <div>
+            <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">Use notifications for session end</p>
+            <p className="text-[10px] text-zinc-400">Sound inside Tapost remains separate from browser notifications.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void updateSettings({ notifications_enabled: !settings.notifications_enabled })}
+            className={`relative h-6 w-11 rounded-full transition-colors ${
+              settings.notifications_enabled ? 'bg-[#0F6E56]' : 'bg-zinc-300 dark:bg-zinc-700'
+            }`}
+            aria-pressed={settings.notifications_enabled}
+            aria-label="Toggle session-end notifications"
+          >
+            <span
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                settings.notifications_enabled ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
 
         {permState !== 'granted' ? (
           <button
-            onClick={handleRequestNotifications}
-            className="w-full py-2.5 px-3 rounded-xl bg-[#0F6E56] hover:bg-[#0c5945] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs"
+            onClick={() => void handleRequestNotifications()}
+            disabled={permState === 'unsupported'}
+            className="w-full py-2.5 px-3 rounded-xl bg-[#0F6E56] disabled:bg-zinc-300 disabled:text-zinc-500 hover:bg-[#0c5945] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs"
           >
             <ShieldCheck className="w-4 h-4" />
-            <span>Enable Notification Permission</span>
+            <span>{permState === 'unsupported' ? 'Notifications Unsupported' : 'Enable Notification Permission'}</span>
           </button>
         ) : (
           <button
@@ -134,101 +165,52 @@ export const SettingsScreen: React.FC = () => {
             className="w-full py-2.5 px-3 rounded-xl bg-[#E1F5EE] dark:bg-emerald-950/50 hover:bg-emerald-100 text-[#0F6E56] dark:text-emerald-300 font-semibold text-xs flex items-center justify-center gap-1.5 border border-emerald-200/60"
           >
             <Bell className="w-4 h-4" />
-            <span>{testNotifSent ? 'Test Alarm Triggered!' : 'Send Test Notification'}</span>
+            <span>{testNotifSent ? 'Test Notification Sent' : 'Send Test Notification'}</span>
           </button>
         )}
       </div>
 
-      {/* Battery Optimization & Alarm Reliability Section */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
-            <BatteryCharging className="w-4 h-4 text-[#0F6E56]" />
-            <span>Battery Optimization (Doze Mode)</span>
-          </div>
-
-          <span
-            className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
-              isBatteryExempt
-                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-            }`}
-          >
-            {isBatteryExempt ? 'Unrestricted' : 'Optimized'}
-          </span>
+        <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
+          <MonitorSmartphone className="w-4 h-4 text-[#0F6E56]" />
+          <span>Alarm Delivery Capabilities</span>
         </div>
 
-        <p className="text-xs text-zinc-500">
-          Aggressive Android Doze & OEM battery savers (Samsung, Xiaomi, etc.) can delay or suppress scheduled alarms when your device screen is off.
+        <p className="text-xs text-zinc-500 leading-relaxed">
+          This build runs in a browser. Tapost can keep a repeating alarm active while the page runtime remains available, but it does not claim native Android or iOS alarm guarantees.
         </p>
 
-        <div className="pt-1 flex items-center gap-2">
-          {!isBatteryExempt ? (
-            <button
-              onClick={() => setShowBatteryRationale(true)}
-              className="w-full py-2.5 px-3 rounded-xl bg-[#993C1D] hover:bg-[#803117] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs"
-            >
-              <ShieldAlert className="w-4 h-4" />
-              <span>Disable Battery Optimization</span>
-            </button>
-          ) : (
-            <div className="w-full py-2.5 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center justify-center gap-1.5 border border-emerald-200/60">
-              <Check className="w-4 h-4 text-emerald-600" />
-              <span>Alarm Priority Exempted from Battery Saver</span>
+        <div className="space-y-2 text-xs">
+          {[
+            ['Repeating alarm while Tapost is open', capabilities.continuousWhileOpen],
+            ['Browser notification API', capabilities.browserNotifications],
+            ['Vibration API', capabilities.vibration],
+            ['Alarm after browser/app is fully closed', capabilities.backgroundWhenClosed],
+            ['Full-screen alarm over lock screen', capabilities.fullScreenOverLockScreen],
+            ['Native exact-alarm scheduling', capabilities.exactNativeAlarm],
+          ].map(([label, supported]) => (
+            <div key={String(label)} className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2">
+              <span className="text-zinc-600 dark:text-zinc-300">{String(label)}</span>
+              <span className={`inline-flex items-center gap-1 font-semibold ${supported ? 'text-emerald-600' : 'text-zinc-400'}`}>
+                {supported ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                {supported ? 'Supported' : 'Not available'}
+              </span>
             </div>
-          )}
+          ))}
+        </div>
+
+        <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2">
+          <Info className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>Native lock-screen, force-killed, Doze-mode, and exact-alarm behavior requires a real Android/iOS implementation behind the alarm engine contract.</span>
         </div>
       </div>
 
-      {/* Rationale Modal */}
-      {showBatteryRationale && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl p-5 shadow-2xl border border-zinc-200 dark:border-zinc-800 space-y-4">
-            <div className="flex items-center gap-2 text-[#993C1D]">
-              <Smartphone className="w-6 h-6 animate-pulse" />
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Why Exempt Tapost?</h3>
-            </div>
-
-            <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-              <p>
-                When your device is locked or asleep, Android&apos;s <strong>Doze Mode</strong> suspends background background timers to save battery.
-              </p>
-              <p>
-                To guarantee your session alarms ring <strong>exactly to the second</strong> with full-screen ringers and sound, Tapost requires an exemption from Android Battery Optimizations.
-              </p>
-              <div className="p-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-[11px] text-zinc-500 flex items-start gap-2">
-                <Info className="w-4 h-4 text-[#0F6E56] shrink-0 mt-0.5" />
-                <span>Tapost uses minimal battery and only activates exact timers when you explicitly tap Start on a task session.</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={handleDisableBatteryOptimization}
-                className="flex-1 py-2.5 px-3 rounded-xl bg-[#0F6E56] hover:bg-[#0c5945] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs"
-              >
-                <Check className="w-4 h-4" />
-                <span>Allow Exemption</span>
-              </button>
-              <button
-                onClick={() => setShowBatteryRationale(false)}
-                className="py-2.5 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-600 dark:text-zinc-400 font-semibold text-xs"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Session & Snooze Configuration */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-4">
         <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
           <Clock className="w-4 h-4 text-[#0F6E56]" />
           <span>Timer Preferences</span>
         </div>
 
-        {/* Snooze Duration */}
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">Snooze Duration</p>
@@ -237,7 +219,7 @@ export const SettingsScreen: React.FC = () => {
 
           <select
             value={settings.snooze_duration_minutes}
-            onChange={(e) => updateSettings({ snooze_duration_minutes: Number(e.target.value) })}
+            onChange={(event) => void updateSettings({ snooze_duration_minutes: Number(event.target.value) })}
             className="px-3 py-1.5 text-xs rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 focus:outline-none"
           >
             <option value={3}>3 Minutes</option>
@@ -246,7 +228,6 @@ export const SettingsScreen: React.FC = () => {
           </select>
         </div>
 
-        {/* Default Session Length */}
         <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
           <div>
             <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">Default Focus Duration</p>
@@ -255,7 +236,7 @@ export const SettingsScreen: React.FC = () => {
 
           <select
             value={settings.default_session_minutes}
-            onChange={(e) => updateSettings({ default_session_minutes: Number(e.target.value) })}
+            onChange={(event) => void updateSettings({ default_session_minutes: Number(event.target.value) })}
             className="px-3 py-1.5 text-xs rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 focus:outline-none"
           >
             <option value={15}>15 Minutes</option>
@@ -266,7 +247,6 @@ export const SettingsScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Theme Toggle */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
         <div className="flex items-center gap-2">
           {settings.theme === 'dark' ? (
@@ -276,19 +256,14 @@ export const SettingsScreen: React.FC = () => {
           )}
           <div>
             <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">App Interface Theme</p>
-            <p className="text-[10px] text-zinc-400">Switch between light & dark aesthetics</p>
+            <p className="text-[10px] text-zinc-400">Switch between light and dark</p>
           </div>
         </div>
 
         <button
           onClick={() => {
             const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
-            updateSettings({ theme: nextTheme });
-            if (nextTheme === 'dark') {
-              document.documentElement.classList.add('dark');
-            } else {
-              document.documentElement.classList.remove('dark');
-            }
+            void updateSettings({ theme: nextTheme });
           }}
           className="px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-semibold"
         >
@@ -296,19 +271,15 @@ export const SettingsScreen: React.FC = () => {
         </button>
       </div>
 
-      {/* Data Operations */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
           <Database className="w-4 h-4 text-[#0F6E56]" />
-          <span>Database Operations</span>
+          <span>Local Data</span>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={async () => {
-              localStorage.removeItem('tapost_sqlite_tasks_v1');
-              await initializeStore();
-            }}
+            onClick={() => void resetDemoData()}
             className="py-2.5 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-700 dark:text-zinc-300 text-xs font-medium flex items-center justify-center gap-1.5"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -316,10 +287,9 @@ export const SettingsScreen: React.FC = () => {
           </button>
 
           <button
-            onClick={async () => {
-              if (confirm('Clear all tasks from local SQLite storage?')) {
-                localStorage.setItem('tapost_sqlite_tasks_v1', JSON.stringify([]));
-                await initializeStore();
+            onClick={() => {
+              if (confirm('Clear all Tapost tasks from this browser?')) {
+                void clearAllTasks();
               }
             }}
             className="py-2.5 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-medium flex items-center justify-center gap-1.5"
