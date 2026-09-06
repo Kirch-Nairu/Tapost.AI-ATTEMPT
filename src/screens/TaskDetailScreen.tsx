@@ -1,19 +1,19 @@
 import React from 'react';
 import { useTaskStore } from '../stores/taskStore';
-import { ArrowLeft, Play, CheckCircle2, Trash2, Clock, Calendar, Bell, AlignLeft, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Play, Trash2, Clock, Bell, AlignLeft } from 'lucide-react';
 import { format, parseISO, differenceInMinutes } from 'date-fns';
 
 export const TaskDetailScreen: React.FC = () => {
   const {
     selectedTaskId,
     tasks,
+    activeTaskId,
     setCurrentScreen,
     startTaskSession,
-    markTaskCompleted,
     deleteTask,
   } = useTaskStore();
 
-  const task = tasks.find((t) => t.id === selectedTaskId);
+  const task = tasks.find((candidate) => candidate.id === selectedTaskId);
 
   if (!task) {
     return (
@@ -29,12 +29,14 @@ export const TaskDetailScreen: React.FC = () => {
     );
   }
 
-  const formatIsoSafe = (isoStr?: string | null) => {
-    if (!isoStr) return '--';
+  const anotherSessionActive = Boolean(activeTaskId && activeTaskId !== task.id);
+
+  const formatIsoSafe = (isoString?: string | null) => {
+    if (!isoString) return '--';
     try {
-      return format(parseISO(isoStr), 'PPP p');
+      return format(parseISO(isoString), 'PPP p');
     } catch {
-      return isoStr;
+      return isoString;
     }
   };
 
@@ -42,20 +44,23 @@ export const TaskDetailScreen: React.FC = () => {
     try {
       const start = parseISO(task.reserved_start);
       const end = parseISO(task.reserved_end);
-      const mins = differenceInMinutes(end, start);
-      return `${mins} minutes`;
+      return `${differenceInMinutes(end, start)} minutes`;
     } catch {
       return '--';
     }
   };
 
+  const startActionClass = anotherSessionActive
+    ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed'
+    : 'bg-[#0F6E56] hover:bg-[#0c5945] text-white shadow-md';
+
   return (
     <div className="p-4 space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between pt-2">
         <button
           onClick={() => setCurrentScreen('home')}
           className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors"
+          aria-label="Back to tasks"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
@@ -65,7 +70,7 @@ export const TaskDetailScreen: React.FC = () => {
         </span>
 
         <button
-          onClick={() => deleteTask(task.id)}
+          onClick={() => void deleteTask(task.id)}
           className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 transition-colors"
           title="Delete Task"
         >
@@ -73,7 +78,6 @@ export const TaskDetailScreen: React.FC = () => {
         </button>
       </div>
 
-      {/* Title & Status Card */}
       <div className="p-5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 space-y-3">
         <div className="flex items-center gap-2">
           <span
@@ -108,7 +112,6 @@ export const TaskDetailScreen: React.FC = () => {
         )}
       </div>
 
-      {/* Timing Specs */}
       <div className="space-y-3">
         <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500">
           Schedule Specs
@@ -150,21 +153,31 @@ export const TaskDetailScreen: React.FC = () => {
             </span>
             <div className="text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
               <p>Started: {formatIsoSafe(task.actual_start)}</p>
-              {task.actual_end && <p>Ended: {formatIsoSafe(task.actual_end)}</p>}
+              {task.actual_end && (
+                <p>
+                  {task.status === 'active' ? 'Target end' : 'Ended'}: {formatIsoSafe(task.actual_end)}
+                </p>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Main Action Button */}
-      <div className="pt-4">
+      <div className="pt-4 space-y-2">
+        {anotherSessionActive && (task.status === 'pending' || task.status === 'missed' || task.status === 'dismissed') && (
+          <p className="text-xs text-center text-amber-600 dark:text-amber-400">
+            Finish or cancel the current active session before starting this task.
+          </p>
+        )}
+
         {task.status === 'pending' && (
           <button
-            onClick={() => startTaskSession(task.id)}
-            className="w-full py-3.5 px-4 rounded-xl bg-[#0F6E56] hover:bg-[#0c5945] text-white font-semibold text-sm shadow-md flex items-center justify-center gap-2"
+            onClick={() => void startTaskSession(task.id)}
+            disabled={anotherSessionActive}
+            className={`w-full py-3.5 px-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${startActionClass}`}
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Start Session Now</span>
+            <span>{anotherSessionActive ? 'Another Session Is Active' : 'Start Session Now'}</span>
           </button>
         )}
 
@@ -179,11 +192,12 @@ export const TaskDetailScreen: React.FC = () => {
 
         {(task.status === 'missed' || task.status === 'dismissed') && (
           <button
-            onClick={() => startTaskSession(task.id)}
-            className="w-full py-3.5 px-4 rounded-xl bg-[#0F6E56] text-white font-semibold text-sm shadow-md flex items-center justify-center gap-2"
+            onClick={() => void startTaskSession(task.id)}
+            disabled={anotherSessionActive}
+            className={`w-full py-3.5 px-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${startActionClass}`}
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Restart Session</span>
+            <span>{anotherSessionActive ? 'Another Session Is Active' : 'Restart Session'}</span>
           </button>
         )}
       </div>
