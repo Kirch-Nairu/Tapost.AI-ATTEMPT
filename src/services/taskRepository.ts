@@ -45,8 +45,8 @@ class TaskRepository {
     try {
       const data = this.readRawTasks();
       return data ? JSON.parse(data) : [];
-    } catch (e) {
-      console.error('Failed to read tasks from local storage:', e);
+    } catch (error) {
+      console.error('Failed to read tasks from local storage:', error);
       return [];
     }
   }
@@ -54,8 +54,8 @@ class TaskRepository {
   private saveStorageTasks(tasks: Task[]): void {
     try {
       localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
-    } catch (e) {
-      console.error('Failed to save tasks to local storage:', e);
+    } catch (error) {
+      console.error('Failed to save tasks to local storage:', error);
     }
   }
 
@@ -79,6 +79,7 @@ class TaskRepository {
       reserved_start: formData.reserved_start,
       reserved_end: formData.reserved_end,
       actual_start: null,
+      target_end: null,
       actual_end: null,
       status: 'pending',
       alarm_sound: formData.alarm_sound || 'teal_chime',
@@ -143,8 +144,8 @@ class TaskRepository {
 
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save settings:', e);
+    } catch (error) {
+      console.error('Failed to save settings:', error);
     }
 
     return updated;
@@ -170,6 +171,7 @@ class TaskRepository {
         reserved_start: addMinutes(now, 5),
         reserved_end: addMinutes(now, 30),
         actual_start: null,
+        target_end: null,
         actual_end: null,
         status: 'pending',
         alarm_sound: 'teal_chime',
@@ -184,6 +186,7 @@ class TaskRepository {
         reserved_start: addMinutes(now, 45),
         reserved_end: addMinutes(now, 75),
         actual_start: null,
+        target_end: null,
         actual_end: null,
         status: 'pending',
         alarm_sound: 'zen_gong',
@@ -198,6 +201,7 @@ class TaskRepository {
         reserved_start: addMinutes(now, -180),
         reserved_end: addMinutes(now, -120),
         actual_start: addMinutes(now, -180),
+        target_end: addMinutes(now, -120),
         actual_end: addMinutes(now, -120),
         status: 'completed',
         alarm_sound: 'digital_pulse',
@@ -212,6 +216,7 @@ class TaskRepository {
         reserved_start: addMinutes(now, -120),
         reserved_end: addMinutes(now, -90),
         actual_start: null,
+        target_end: null,
         actual_end: null,
         status: 'missed',
         alarm_sound: 'morning_breeze',
