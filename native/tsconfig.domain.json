@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": ".domain-build",
+    "rootDir": "."
+  },
+  "include": [
+    "src/types/task.ts",
+    "src/domain/session.ts",
+    "src/repositories/TaskRepository.ts",
+    "src/services/alarm/AlarmEngine.ts",
+    "src/controllers/SessionController.ts"
+  ]
+}
