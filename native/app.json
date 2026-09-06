@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Tapost",
+    "slug": "tapost-native",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "tapost",
+    "platforms": ["android"],
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.kirjanelabs.tapost",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
+      "predictiveBackGestureEnabled": false
+    }
+  }
+}
