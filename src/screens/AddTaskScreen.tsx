@@ -6,9 +6,8 @@ import { useTaskStore } from '../stores/taskStore';
 import { AlarmSound } from '../types/task';
 import { audioService } from '../services/audioService';
 import { ArrowLeft, Clock, Bell, Volume2, Sparkles, AlertCircle } from 'lucide-react';
-import { addMinutes, format, setMinutes, setSeconds, addHours } from 'date-fns';
+import { addMinutes, setSeconds } from 'date-fns';
 
-// Zod Schema
 const addTaskSchema = z
   .object({
     title: z
@@ -24,36 +23,32 @@ const addTaskSchema = z
     (data) => {
       const start = new Date(data.reserved_start).getTime();
       const end = new Date(data.reserved_end).getTime();
-      return end > start;
+      return Number.isFinite(start) && Number.isFinite(end) && end > start;
     },
     {
       message: 'End time must be after start time',
       path: ['reserved_end'],
-    }
+    },
   );
 
 type AddTaskInputs = z.infer<typeof addTaskSchema>;
 
-// Helper to compute next rounded 15-min increment
 function getNext15MinIncrement(date: Date = new Date()): Date {
-  const mins = date.getMinutes();
-  const remainder = 15 - (mins % 15);
-  const rounded = addMinutes(setSeconds(date, 0), remainder);
-  return rounded;
+  const minutes = date.getMinutes();
+  const remainder = 15 - (minutes % 15);
+  return addMinutes(setSeconds(date, 0), remainder);
 }
 
-// Convert Date object to datetime-local input string format (YYYY-MM-DDTHH:mm)
 function toDatetimeLocalString(date: Date): string {
-  const tzOffsetMs = date.getTimezoneOffset() * 60000;
-  const localDate = new Date(date.getTime() - tzOffsetMs);
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60_000;
+  const localDate = new Date(date.getTime() - timezoneOffsetMs);
   return localDate.toISOString().slice(0, 16);
 }
 
 export const AddTaskScreen: React.FC = () => {
   const { createTask, setCurrentScreen, settings } = useTaskStore();
-
   const defaultStart = getNext15MinIncrement();
-  const defaultEnd = addMinutes(defaultStart, 25);
+  const defaultEnd = addMinutes(defaultStart, settings.default_session_minutes || 25);
 
   const {
     register,
@@ -75,15 +70,12 @@ export const AddTaskScreen: React.FC = () => {
   const selectedStart = watch('reserved_start');
   const selectedSound = watch('alarm_sound');
 
-  // Quick preset helper
-  const applyPresetMinutes = (durationMins: number) => {
-    try {
-      const start = selectedStart ? new Date(selectedStart) : new Date();
-      const end = addMinutes(start, durationMins);
-      setValue('reserved_end', toDatetimeLocalString(end), { shouldValidate: true });
-    } catch {
-      // ignore date parse errors
-    }
+  const applyPresetMinutes = (durationMinutes: number) => {
+    const start = selectedStart ? new Date(selectedStart) : new Date();
+    if (Number.isNaN(start.getTime())) return;
+
+    const end = addMinutes(start, durationMinutes);
+    setValue('reserved_end', toDatetimeLocalString(end), { shouldValidate: true });
   };
 
   const onSubmit = async (data: AddTaskInputs) => {
@@ -99,22 +91,21 @@ export const AddTaskScreen: React.FC = () => {
 
   return (
     <div className="p-4 space-y-5">
-      {/* Top Header */}
       <div className="flex items-center gap-3 pt-2">
         <button
           onClick={() => setCurrentScreen('home')}
           className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors"
+          aria-label="Back to tasks"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div>
           <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">Schedule Task Session</h1>
-          <p className="text-xs text-zinc-500">Set task time and built-in alarm</p>
+          <p className="text-xs text-zinc-500">Set task time and built-in browser alarm</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        {/* Title Field */}
         <div>
           <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
             Task Title <span className="text-rose-500">*</span>
@@ -137,7 +128,6 @@ export const AddTaskScreen: React.FC = () => {
           )}
         </div>
 
-        {/* Quick Presets */}
         <div>
           <span className="block text-[11px] font-medium text-zinc-500 mb-1.5 flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-[#0F6E56]" />
@@ -161,7 +151,6 @@ export const AddTaskScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Start Time & End Time */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1">
@@ -201,7 +190,6 @@ export const AddTaskScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Alarm Sound Picker */}
         <div>
           <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
             <Volume2 className="w-3.5 h-3.5 text-[#0F6E56]" />
@@ -229,8 +217,8 @@ export const AddTaskScreen: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  onClick={(event) => {
+                    event.stopPropagation();
                     audioService.playPreview(tone.id as AlarmSound, settings.sound_volume);
                   }}
                   className="p-1.5 rounded-lg bg-white dark:bg-zinc-700 hover:bg-emerald-100 text-[#0F6E56] shadow-2xs text-[10px] font-bold"
@@ -243,7 +231,6 @@ export const AddTaskScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Notes Field */}
         <div>
           <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
             Notes / Objectives (Optional)
@@ -256,14 +243,13 @@ export const AddTaskScreen: React.FC = () => {
           />
         </div>
 
-        {/* Submit Button */}
         <div className="pt-2">
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-3.5 px-4 rounded-xl bg-[#0F6E56] hover:bg-[#0c5945] text-white font-semibold text-sm shadow-md active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            className="w-full py-3.5 px-4 rounded-xl bg-[#0F6E56] hover:bg-[#0c5945] disabled:opacity-60 text-white font-semibold text-sm shadow-md active:scale-[0.99] transition-all flex items-center justify-center gap-2"
           >
-            <span>Create Reserved Task</span>
+            <span>{isSubmitting ? 'Creating…' : 'Create Reserved Task'}</span>
           </button>
         </div>
       </form>

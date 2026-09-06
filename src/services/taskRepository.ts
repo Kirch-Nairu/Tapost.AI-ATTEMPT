@@ -1,7 +1,9 @@
-import { Task, TaskFormData, AppSettings, AlarmSound } from '../types/task';
+import { Task, TaskFormData, AppSettings } from '../types/task';
 
-const TASKS_STORAGE_KEY = 'tapost_sqlite_tasks_v1';
+const TASKS_STORAGE_KEY = 'tapost_tasks_v2';
+const LEGACY_TASKS_STORAGE_KEY = 'tapost_sqlite_tasks_v1';
 const SETTINGS_STORAGE_KEY = 'tapost_app_settings_v1';
+const DEMO_SEEDED_KEY = 'tapost_demo_seeded_v1';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
@@ -12,11 +14,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sound_volume: 0.8,
 };
 
-// Generate UUID helper
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
+
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
@@ -25,12 +27,26 @@ function generateUUID(): string {
 }
 
 class TaskRepository {
+  private readRawTasks(): string | null {
+    const current = localStorage.getItem(TASKS_STORAGE_KEY);
+    if (current !== null) return current;
+
+    const legacy = localStorage.getItem(LEGACY_TASKS_STORAGE_KEY);
+    if (legacy !== null) {
+      localStorage.setItem(TASKS_STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_TASKS_STORAGE_KEY);
+      return legacy;
+    }
+
+    return null;
+  }
+
   private getStorageTasks(): Task[] {
     try {
-      const data = localStorage.getItem(TASKS_STORAGE_KEY);
+      const data = this.readRawTasks();
       return data ? JSON.parse(data) : [];
-    } catch (e) {
-      console.error('Failed to read tasks from local storage:', e);
+    } catch (error) {
+      console.error('Failed to read tasks from local storage:', error);
       return [];
     }
   }
@@ -38,8 +54,8 @@ class TaskRepository {
   private saveStorageTasks(tasks: Task[]): void {
     try {
       localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
-    } catch (e) {
-      console.error('Failed to save tasks to local storage:', e);
+    } catch (error) {
+      console.error('Failed to save tasks to local storage:', error);
     }
   }
 
@@ -49,13 +65,13 @@ class TaskRepository {
 
   async getTaskById(id: string): Promise<Task | null> {
     const tasks = this.getStorageTasks();
-    return tasks.find((t) => t.id === id) || null;
+    return tasks.find((task) => task.id === id) || null;
   }
 
   async createTask(formData: TaskFormData): Promise<Task> {
     const tasks = this.getStorageTasks();
     const now = new Date().toISOString();
-    
+
     const newTask: Task = {
       id: generateUUID(),
       title: formData.title.trim(),
@@ -63,6 +79,7 @@ class TaskRepository {
       reserved_start: formData.reserved_start,
       reserved_end: formData.reserved_end,
       actual_start: null,
+      target_end: null,
       actual_end: null,
       status: 'pending',
       alarm_sound: formData.alarm_sound || 'teal_chime',
@@ -78,7 +95,7 @@ class TaskRepository {
 
   async updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
     const tasks = this.getStorageTasks();
-    const index = tasks.findIndex((t) => t.id === id);
+    const index = tasks.findIndex((task) => task.id === id);
     if (index === -1) return null;
 
     const updatedTask: Task = {
@@ -94,10 +111,22 @@ class TaskRepository {
 
   async deleteTask(id: string): Promise<boolean> {
     const tasks = this.getStorageTasks();
-    const filtered = tasks.filter((t) => t.id !== id);
+    const filtered = tasks.filter((task) => task.id !== id);
     if (filtered.length === tasks.length) return false;
+
     this.saveStorageTasks(filtered);
     return true;
+  }
+
+  async clearAllTasks(): Promise<void> {
+    this.saveStorageTasks([]);
+    localStorage.setItem(DEMO_SEEDED_KEY, 'true');
+  }
+
+  async resetDemoData(): Promise<Task[]> {
+    this.saveStorageTasks([]);
+    localStorage.removeItem(DEMO_SEEDED_KEY);
+    return this.seedDemoDataIfEmpty();
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -112,46 +141,56 @@ class TaskRepository {
   async saveSettings(settings: Partial<AppSettings>): Promise<AppSettings> {
     const current = await this.getSettings();
     const updated = { ...current, ...settings };
+
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save settings:', e);
+    } catch (error) {
+      console.error('Failed to save settings:', error);
     }
+
     return updated;
   }
 
-  // Seed demo data for rich initial presentation
   async seedDemoDataIfEmpty(): Promise<Task[]> {
     const existing = this.getStorageTasks();
     if (existing.length > 0) return existing;
 
+    if (localStorage.getItem(DEMO_SEEDED_KEY) === 'true') {
+      return [];
+    }
+
     const now = new Date();
-    
-    // Helper to format ISO with offset minutes
-    const addMinutes = (date: Date, mins: number) => {
-      return new Date(date.getTime() + mins * 60 * 1000).toISOString();
-    };
+    const addMinutes = (date: Date, minutes: number) =>
+      new Date(date.getTime() + minutes * 60 * 1000).toISOString();
 
     const demoTasks: Task[] = [
       {
         id: generateUUID(),
         title: 'Review Tapost Sprint Deliverables',
-        notes: 'Check countdown timer, audio triggers, and local DB integration.',
+        notes: 'Check countdown timer, audio triggers, and local persistence.',
         reserved_start: addMinutes(now, 5),
         reserved_end: addMinutes(now, 30),
+        actual_start: null,
+        target_end: null,
+        actual_end: null,
         status: 'pending',
         alarm_sound: 'teal_chime',
+        snooze_count: 0,
         created_at: addMinutes(now, -60),
         updated_at: addMinutes(now, -60),
       },
       {
         id: generateUUID(),
         title: 'Focus Session: Clean Architecture Audit',
-        notes: 'Ensure all DB calls are isolated in taskRepository service.',
+        notes: 'Ensure persistence and alarm behavior stay behind service boundaries.',
         reserved_start: addMinutes(now, 45),
         reserved_end: addMinutes(now, 75),
+        actual_start: null,
+        target_end: null,
+        actual_end: null,
         status: 'pending',
         alarm_sound: 'zen_gong',
+        snooze_count: 0,
         created_at: addMinutes(now, -30),
         updated_at: addMinutes(now, -30),
       },
@@ -162,9 +201,11 @@ class TaskRepository {
         reserved_start: addMinutes(now, -180),
         reserved_end: addMinutes(now, -120),
         actual_start: addMinutes(now, -180),
+        target_end: addMinutes(now, -120),
         actual_end: addMinutes(now, -120),
         status: 'completed',
         alarm_sound: 'digital_pulse',
+        snooze_count: 0,
         created_at: addMinutes(now, -240),
         updated_at: addMinutes(now, -120),
       },
@@ -174,14 +215,19 @@ class TaskRepository {
         notes: 'Expired without user starting.',
         reserved_start: addMinutes(now, -120),
         reserved_end: addMinutes(now, -90),
+        actual_start: null,
+        target_end: null,
+        actual_end: null,
         status: 'missed',
         alarm_sound: 'morning_breeze',
+        snooze_count: 0,
         created_at: addMinutes(now, -200),
         updated_at: addMinutes(now, -90),
-      }
+      },
     ];
 
     this.saveStorageTasks(demoTasks);
+    localStorage.setItem(DEMO_SEEDED_KEY, 'true');
     return demoTasks;
   }
 }

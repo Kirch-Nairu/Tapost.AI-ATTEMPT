@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { Task, TaskFormData, AppSettings, CompletionStats } from '../types/task';
 import { taskRepository, DEFAULT_SETTINGS } from '../services/taskRepository';
-import { audioService } from '../services/audioService';
-import { notificationService } from '../services/notificationService';
+import { alarmEngine } from '../services/alarm';
 
 type ScreenName = 'home' | 'add_task' | 'history' | 'settings' | 'task_detail' | 'active_session';
 
@@ -18,7 +17,6 @@ interface TaskStoreState {
   searchQuery: string;
   filterStatus: string;
 
-  // Actions
   initializeStore: () => Promise<void>;
   setCurrentScreen: (screen: ScreenName, taskId?: string | null) => void;
   createTask: (data: TaskFormData) => Promise<Task>;
@@ -28,6 +26,8 @@ interface TaskStoreState {
   dismissTaskAlarm: (taskId: string) => Promise<void>;
   cancelActiveSession: (taskId: string) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
+  clearAllTasks: () => Promise<void>;
+  resetDemoData: () => Promise<void>;
   updateSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
   checkAndMarkMissedTasks: () => Promise<void>;
   setSearchQuery: (query: string) => void;
@@ -36,6 +36,40 @@ interface TaskStoreState {
 }
 
 let timerInterval: number | null = null;
+let missedSweepInterval: number | null = null;
+let missedSweepRunning = false;
+
+function clearRuntimeIntervals(): void {
+  if (timerInterval !== null) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  if (missedSweepInterval !== null) {
+    clearInterval(missedSweepInterval);
+    missedSweepInterval = null;
+  }
+}
+
+function getTaskSortTime(task: Task): number {
+  const value = task.actual_start || task.updated_at || task.created_at;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getTargetEndMs(task: Task): number | null {
+  const value = task.target_end || (task.status === 'active' ? task.actual_end : null);
+  if (!value) return null;
+
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getEffectiveFinishIso(task: Task, nowMs = Date.now()): string {
+  const targetEndMs = getTargetEndMs(task);
+  const finishMs = targetEndMs !== null && targetEndMs <= nowMs ? targetEndMs : nowMs;
+  return new Date(finishMs).toISOString();
+}
 
 export const useTaskStore = create<TaskStoreState>((set, get) => ({
   tasks: [],
@@ -51,7 +85,11 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   initializeStore: async () => {
     set({ isLoading: true });
+
     try {
+      alarmEngine.stop();
+      clearRuntimeIntervals();
+
       let loadedTasks = await taskRepository.getAllTasks();
       if (loadedTasks.length === 0) {
         loadedTasks = await taskRepository.seedDemoDataIfEmpty();
@@ -59,24 +97,55 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
       const settings = await taskRepository.getSettings();
 
-      // Check for an active task session that might still be running
-      const activeTask = loadedTasks.find((t) => t.status === 'active');
-      let activeId = activeTask ? activeTask.id : null;
-      let remaining = 0;
-
-      if (activeTask && activeTask.actual_end) {
-        const endMs = new Date(activeTask.actual_end).getTime();
-        const diffSec = Math.ceil((endMs - Date.now()) / 1000);
-        if (diffSec > 0) {
-          remaining = diffSec;
-        } else {
-          // Alarm should fire!
-          set({ ringingTaskId: activeTask.id });
-          audioService.startRepeatingAlarm(activeTask.alarm_sound || settings.alarm_sound, settings.sound_volume);
-          notificationService.startContinuousVibration();
-          notificationService.showNotification(`Tapost Session Ended: ${activeTask.title}`, {
-            body: 'Your scheduled focus session has completed! Tap to stop alarm.',
+      // Migrate legacy active records where actual_end was used as the timer deadline.
+      let migratedLegacyActive = false;
+      for (const task of loadedTasks) {
+        if (task.status === 'active' && !task.target_end && task.actual_end) {
+          await taskRepository.updateTask(task.id, {
+            target_end: task.actual_end,
+            actual_end: null,
           });
+          migratedLegacyActive = true;
+        }
+      }
+
+      if (migratedLegacyActive) {
+        loadedTasks = await taskRepository.getAllTasks();
+      }
+
+      const activeTasks = loadedTasks
+        .filter((task) => task.status === 'active')
+        .sort((a, b) => getTaskSortTime(b) - getTaskSortTime(a));
+
+      if (activeTasks.length > 1) {
+        const nowMs = Date.now();
+        for (const staleTask of activeTasks.slice(1)) {
+          await taskRepository.updateTask(staleTask.id, {
+            status: 'dismissed',
+            actual_end: staleTask.actual_start ? getEffectiveFinishIso(staleTask, nowMs) : staleTask.actual_end,
+          });
+        }
+        loadedTasks = await taskRepository.getAllTasks();
+      }
+
+      const activeTask = loadedTasks
+        .filter((task) => task.status === 'active')
+        .sort((a, b) => getTaskSortTime(b) - getTaskSortTime(a))[0];
+
+      const activeId = activeTask?.id || null;
+      let remaining = 0;
+      let ringingTaskId: string | null = null;
+
+      if (activeTask) {
+        const targetEndMs = getTargetEndMs(activeTask);
+        if (targetEndMs !== null) {
+          const diffSec = Math.ceil((targetEndMs - Date.now()) / 1000);
+          if (diffSec > 0) {
+            remaining = diffSec;
+          } else {
+            ringingTaskId = activeTask.id;
+            alarmEngine.start(activeTask, settings);
+          }
         }
       }
 
@@ -84,46 +153,40 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         tasks: loadedTasks,
         settings,
         activeTaskId: activeId,
+        ringingTaskId,
         activeRemainingSeconds: remaining,
         isLoading: false,
       });
 
-      // Auto-check missed
-      get().checkAndMarkMissedTasks();
+      await get().checkAndMarkMissedTasks();
 
-      // Start tick background interval
-      if (timerInterval !== null) clearInterval(timerInterval);
       timerInterval = window.setInterval(() => {
-        const { activeTaskId, tasks, ringingTaskId, settings: currentSettings } = get();
-        
-        // Auto check missed tasks periodically
-        get().checkAndMarkMissedTasks();
+        const state = get();
+        if (!state.activeTaskId || state.ringingTaskId) return;
 
-        if (activeTaskId && !ringingTaskId) {
-          const currentActive = tasks.find((t) => t.id === activeTaskId && t.status === 'active');
-          if (currentActive && currentActive.actual_end) {
-            const endMs = new Date(currentActive.actual_end).getTime();
-            const leftSec = Math.ceil((endMs - Date.now()) / 1000);
+        const currentActive = state.tasks.find(
+          (task) => task.id === state.activeTaskId && task.status === 'active',
+        );
+        if (!currentActive) return;
 
-            if (leftSec <= 0) {
-              // Timer ended -> Fire alarm!
-              set({ activeRemainingSeconds: 0, ringingTaskId: currentActive.id });
-              audioService.startRepeatingAlarm(
-                currentActive.alarm_sound || currentSettings.alarm_sound,
-                currentSettings.sound_volume
-              );
-              notificationService.startContinuousVibration();
-              notificationService.showNotification(`Tapost Session Ended: ${currentActive.title}`, {
-                body: 'Your scheduled focus session has completed! Tap to stop alarm.',
-              });
-            } else {
-              set({ activeRemainingSeconds: leftSec });
-            }
-          }
+        const targetEndMs = getTargetEndMs(currentActive);
+        if (targetEndMs === null) return;
+
+        const leftSec = Math.ceil((targetEndMs - Date.now()) / 1000);
+        if (leftSec <= 0) {
+          set({ activeRemainingSeconds: 0, ringingTaskId: currentActive.id });
+          alarmEngine.start(currentActive, state.settings);
+          return;
         }
+
+        set({ activeRemainingSeconds: leftSec });
       }, 1000);
-    } catch (e) {
-      console.error('Error initializing store:', e);
+
+      missedSweepInterval = window.setInterval(() => {
+        void get().checkAndMarkMissedTasks();
+      }, 30_000);
+    } catch (error) {
+      console.error('Error initializing store:', error);
       set({ isLoading: false });
     }
   },
@@ -139,137 +202,204 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
   },
 
   startTaskSession: async (taskId) => {
-    const { tasks } = get();
-    const task = tasks.find((t) => t.id === taskId);
+    const { tasks, activeTaskId } = get();
+    const task = tasks.find((candidate) => candidate.id === taskId);
     if (!task) return;
+
+    const existingActive = tasks.find(
+      (candidate) => candidate.status === 'active' && candidate.id !== taskId,
+    );
+
+    if (existingActive || (activeTaskId && activeTaskId !== taskId)) {
+      console.warn('Tapost allows only one active task session at a time.');
+      return;
+    }
+
+    if (task.status === 'active') {
+      set({ activeTaskId: task.id, currentScreen: 'active_session' });
+      return;
+    }
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const reservedStartMs = new Date(task.reserved_start).getTime();
+    const reservedEndMs = new Date(task.reserved_end).getTime();
+    const rawPlannedDurationMs = reservedEndMs - reservedStartMs;
+    const plannedDurationMs = Number.isFinite(rawPlannedDurationMs)
+      ? Math.max(60_000, rawPlannedDurationMs)
+      : 60_000;
 
-    // Duration = reserved_end - reserved_start
-    const resStartMs = new Date(task.reserved_start).getTime();
-    const resEndMs = new Date(task.reserved_end).getTime();
-    const plannedDurationMs = Math.max(60000, resEndMs - resStartMs); // minimum 1 min fallback
-
-    const actualEndMs = nowMs + plannedDurationMs;
-    const actualEndIso = new Date(actualEndMs).toISOString();
-
+    const targetEndIso = new Date(nowMs + plannedDurationMs).toISOString();
     const updatedTask = await taskRepository.updateTask(taskId, {
       actual_start: nowIso,
-      actual_end: actualEndIso,
+      target_end: targetEndIso,
+      actual_end: null,
       status: 'active',
     });
 
-    if (updatedTask) {
-      const updatedList = tasks.map((t) => (t.id === taskId ? updatedTask : t));
-      const remainingSec = Math.ceil(plannedDurationMs / 1000);
+    if (!updatedTask) return;
 
-      set({
-        tasks: updatedList,
-        activeTaskId: taskId,
-        activeRemainingSeconds: remainingSec,
-        currentScreen: 'active_session',
-      });
-    }
+    set((state) => ({
+      tasks: state.tasks.map((candidate) =>
+        candidate.id === taskId ? updatedTask : candidate,
+      ),
+      activeTaskId: taskId,
+      ringingTaskId: null,
+      activeRemainingSeconds: Math.ceil(plannedDurationMs / 1000),
+      currentScreen: 'active_session',
+    }));
   },
 
   markTaskCompleted: async (taskId) => {
-    audioService.stopAlarm();
-    notificationService.stopVibration();
-    const { tasks } = get();
-    const task = tasks.find((t) => t.id === taskId);
+    const { tasks, activeTaskId, ringingTaskId } = get();
+    const task = tasks.find((candidate) => candidate.id === taskId);
     if (!task) return;
+
+    if (activeTaskId === taskId || ringingTaskId === taskId) {
+      alarmEngine.stop();
+    }
 
     const updated = await taskRepository.updateTask(taskId, {
       status: 'completed',
-      actual_end: task.actual_end || new Date().toISOString(),
+      actual_end: task.actual_start ? getEffectiveFinishIso(task) : task.actual_end,
     });
 
-    if (updated) {
-      set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
-        activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
-        ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
-        activeRemainingSeconds: state.activeTaskId === taskId ? 0 : state.activeRemainingSeconds,
-      }));
-    }
+    if (!updated) return;
+
+    set((state) => ({
+      tasks: state.tasks.map((candidate) =>
+        candidate.id === taskId ? updated : candidate,
+      ),
+      activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
+      ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
+      activeRemainingSeconds: state.activeTaskId === taskId ? 0 : state.activeRemainingSeconds,
+    }));
   },
 
   snoozeTaskAlarm: async (taskId) => {
-    audioService.stopAlarm();
-    notificationService.stopVibration();
-    const { tasks, settings } = get();
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
+    const { tasks, settings, ringingTaskId } = get();
+    const task = tasks.find((candidate) => candidate.id === taskId);
+    if (!task || ringingTaskId !== taskId) return;
 
-    const snoozeMins = settings.snooze_duration_minutes || 5;
-    const nowMs = Date.now();
-    const newEndMs = nowMs + snoozeMins * 60 * 1000;
-    const newEndIso = new Date(newEndMs).toISOString();
-    const currentSnoozeCount = (task.snooze_count || 0) + 1;
+    alarmEngine.stop();
 
+    const snoozeMinutes = settings.snooze_duration_minutes || 5;
+    const targetEndIso = new Date(Date.now() + snoozeMinutes * 60 * 1000).toISOString();
     const updated = await taskRepository.updateTask(taskId, {
-      actual_end: newEndIso,
+      target_end: targetEndIso,
+      actual_end: null,
       status: 'active',
-      snooze_count: currentSnoozeCount,
+      snooze_count: (task.snooze_count || 0) + 1,
     });
 
-    if (updated) {
-      set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
-        activeTaskId: taskId,
-        ringingTaskId: null,
-        activeRemainingSeconds: snoozeMins * 60,
-      }));
-    }
+    if (!updated) return;
+
+    set((state) => ({
+      tasks: state.tasks.map((candidate) =>
+        candidate.id === taskId ? updated : candidate,
+      ),
+      activeTaskId: taskId,
+      ringingTaskId: null,
+      activeRemainingSeconds: snoozeMinutes * 60,
+    }));
   },
 
   dismissTaskAlarm: async (taskId) => {
-    audioService.stopAlarm();
-    notificationService.stopVibration();
-    const { tasks } = get();
+    const { tasks, ringingTaskId } = get();
+    const task = tasks.find((candidate) => candidate.id === taskId);
+    if (!task) return;
+
+    if (ringingTaskId === taskId) {
+      alarmEngine.stop();
+    }
+
     const updated = await taskRepository.updateTask(taskId, {
       status: 'dismissed',
+      actual_end: task.actual_start ? getEffectiveFinishIso(task) : task.actual_end,
     });
 
-    if (updated) {
-      set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
-        activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
-        ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
-        activeRemainingSeconds: state.activeTaskId === taskId ? 0 : state.activeRemainingSeconds,
-      }));
-    }
+    if (!updated) return;
+
+    set((state) => ({
+      tasks: state.tasks.map((candidate) =>
+        candidate.id === taskId ? updated : candidate,
+      ),
+      activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
+      ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
+      activeRemainingSeconds: state.activeTaskId === taskId ? 0 : state.activeRemainingSeconds,
+    }));
   },
 
   cancelActiveSession: async (taskId) => {
-    audioService.stopAlarm();
-    notificationService.stopVibration();
+    const { tasks, activeTaskId, ringingTaskId } = get();
+    const task = tasks.find((candidate) => candidate.id === taskId);
+    if (!task) return;
+
+    if (activeTaskId === taskId || ringingTaskId === taskId) {
+      alarmEngine.stop();
+    }
+
     const updated = await taskRepository.updateTask(taskId, {
       status: 'dismissed',
+      actual_end: task.actual_start ? new Date().toISOString() : task.actual_end,
     });
 
-    if (updated) {
-      set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
-        activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
-        ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
-        activeRemainingSeconds: 0,
-        currentScreen: 'home',
-      }));
-    }
+    if (!updated) return;
+
+    set((state) => ({
+      tasks: state.tasks.map((candidate) =>
+        candidate.id === taskId ? updated : candidate,
+      ),
+      activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
+      ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
+      activeRemainingSeconds: 0,
+      currentScreen: 'home',
+    }));
   },
 
   deleteTask: async (taskId) => {
-    const success = await taskRepository.deleteTask(taskId);
-    if (success) {
-      set((state) => ({
-        tasks: state.tasks.filter((t) => t.id !== taskId),
-        activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
-        selectedTaskId: state.selectedTaskId === taskId ? null : state.selectedTaskId,
-        currentScreen: state.selectedTaskId === taskId ? 'home' : state.currentScreen,
-      }));
+    const { activeTaskId, ringingTaskId } = get();
+    if (activeTaskId === taskId || ringingTaskId === taskId) {
+      alarmEngine.stop();
     }
+
+    const success = await taskRepository.deleteTask(taskId);
+    if (!success) return;
+
+    set((state) => ({
+      tasks: state.tasks.filter((task) => task.id !== taskId),
+      activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
+      ringingTaskId: state.ringingTaskId === taskId ? null : state.ringingTaskId,
+      activeRemainingSeconds: state.activeTaskId === taskId ? 0 : state.activeRemainingSeconds,
+      selectedTaskId: state.selectedTaskId === taskId ? null : state.selectedTaskId,
+      currentScreen: state.selectedTaskId === taskId ? 'home' : state.currentScreen,
+    }));
+  },
+
+  clearAllTasks: async () => {
+    alarmEngine.stop();
+    await taskRepository.clearAllTasks();
+    set({
+      tasks: [],
+      activeTaskId: null,
+      ringingTaskId: null,
+      activeRemainingSeconds: 0,
+      selectedTaskId: null,
+      currentScreen: 'home',
+    });
+  },
+
+  resetDemoData: async () => {
+    alarmEngine.stop();
+    const tasks = await taskRepository.resetDemoData();
+    set({
+      tasks,
+      activeTaskId: null,
+      ringingTaskId: null,
+      activeRemainingSeconds: 0,
+      selectedTaskId: null,
+      currentScreen: 'home',
+    });
   },
 
   updateSettings: async (newSettings) => {
@@ -278,23 +408,30 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
   },
 
   checkAndMarkMissedTasks: async () => {
-    const { tasks } = get();
-    const nowMs = Date.now();
-    let changed = false;
+    if (missedSweepRunning) return;
+    missedSweepRunning = true;
 
-    for (const task of tasks) {
-      if (task.status === 'pending') {
+    try {
+      const { tasks } = get();
+      const nowMs = Date.now();
+      const expiredPending = tasks.filter((task) => {
+        if (task.status !== 'pending') return false;
         const reservedEndMs = new Date(task.reserved_end).getTime();
-        if (reservedEndMs < nowMs) {
-          await taskRepository.updateTask(task.id, { status: 'missed' });
-          changed = true;
-        }
-      }
-    }
+        return Number.isFinite(reservedEndMs) && reservedEndMs < nowMs;
+      });
 
-    if (changed) {
+      if (expiredPending.length === 0) return;
+
+      await Promise.all(
+        expiredPending.map((task) =>
+          taskRepository.updateTask(task.id, { status: 'missed' }),
+        ),
+      );
+
       const refreshed = await taskRepository.getAllTasks();
       set({ tasks: refreshed });
+    } finally {
+      missedSweepRunning = false;
     }
   },
 
@@ -304,22 +441,22 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
   getCompletionStats: () => {
     const { tasks } = get();
     const total = tasks.length;
-    const completed = tasks.filter((t) => t.status === 'completed').length;
-    const missed = tasks.filter((t) => t.status === 'missed').length;
-    const dismissed = tasks.filter((t) => t.status === 'dismissed').length;
-
+    const completed = tasks.filter((task) => task.status === 'completed').length;
+    const missed = tasks.filter((task) => task.status === 'missed').length;
+    const dismissed = tasks.filter((task) => task.status === 'dismissed').length;
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-    // Total focus minutes calculation
-    let focusMinutes = 0;
-    tasks.forEach((t) => {
-      if (t.status === 'completed' && t.actual_start && t.actual_end) {
-        const start = new Date(t.actual_start).getTime();
-        const end = new Date(t.actual_end).getTime();
-        const mins = Math.max(0, Math.round((end - start) / 60000));
-        focusMinutes += mins;
+    const totalFocusMinutes = tasks.reduce((sum, task) => {
+      if (task.status !== 'completed' || !task.actual_start || !task.actual_end) {
+        return sum;
       }
-    });
+
+      const start = new Date(task.actual_start).getTime();
+      const end = new Date(task.actual_end).getTime();
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return sum;
+
+      return sum + Math.max(0, Math.round((end - start) / 60_000));
+    }, 0);
 
     return {
       totalTasks: total,
@@ -327,7 +464,7 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
       missedTasks: missed,
       dismissedTasks: dismissed,
       completionRate,
-      totalFocusMinutes: focusMinutes,
+      totalFocusMinutes,
     };
   },
 }));

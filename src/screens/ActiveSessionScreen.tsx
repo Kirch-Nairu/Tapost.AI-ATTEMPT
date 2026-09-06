@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useTaskStore } from '../stores/taskStore';
-import { ArrowLeft, Play, Pause, CheckCircle2, XCircle, Plus, Bell, Volume2, Sparkles } from 'lucide-react';
-import { motion } from 'motion/react';
-import { format, parseISO, differenceInSeconds } from 'date-fns';
+import { alarmEngine } from '../services/alarm';
+import { ArrowLeft, CheckCircle2, XCircle, Bell, Sparkles } from 'lucide-react';
+import { differenceInSeconds, parseISO } from 'date-fns';
 
 export const ActiveSessionScreen: React.FC = () => {
   const {
@@ -15,8 +15,8 @@ export const ActiveSessionScreen: React.FC = () => {
   } = useTaskStore();
 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-
-  const activeTask = tasks.find((t) => t.id === activeTaskId);
+  const activeTask = tasks.find((task) => task.id === activeTaskId);
+  const capabilities = alarmEngine.getCapabilities();
 
   if (!activeTask) {
     return (
@@ -32,34 +32,31 @@ export const ActiveSessionScreen: React.FC = () => {
     );
   }
 
-  // Calculate total initial session duration in seconds
+  const targetEnd = activeTask.target_end || activeTask.actual_end;
   let totalDurationSec = 25 * 60;
-  if (activeTask.actual_start && activeTask.actual_end) {
+  if (activeTask.actual_start && targetEnd) {
     totalDurationSec = Math.max(
       60,
-      differenceInSeconds(parseISO(activeTask.actual_end), parseISO(activeTask.actual_start))
+      differenceInSeconds(parseISO(targetEnd), parseISO(activeTask.actual_start)),
     );
   }
 
   const elapsedSec = Math.max(0, totalDurationSec - activeRemainingSeconds);
   const progressPercent = Math.min(100, Math.max(0, (elapsedSec / totalDurationSec) * 100));
-
-  // Format MM:SS
   const minutes = Math.floor(activeRemainingSeconds / 60);
   const seconds = activeRemainingSeconds % 60;
   const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
   return (
     <div className="min-h-[700px] flex flex-col justify-between p-6 bg-gradient-to-b from-[#0F6E56] via-emerald-900 to-zinc-950 text-white relative overflow-hidden">
-      {/* Background Decorative Rings */}
       <div className="absolute -top-24 -left-24 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-[#993C1D]/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Top Header */}
       <div className="flex items-center justify-between relative z-10">
         <button
           onClick={() => setCurrentScreen('home')}
           className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-all"
+          aria-label="Back to tasks"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
@@ -72,12 +69,9 @@ export const ActiveSessionScreen: React.FC = () => {
         <div className="w-10" />
       </div>
 
-      {/* Center Countdown Meter */}
       <div className="my-auto py-8 text-center flex flex-col items-center justify-center relative z-10">
-        {/* Radial Progress Graphic */}
         <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
-          <svg className="w-full h-full transform -rotate-90">
-            {/* Background Track */}
+          <svg className="w-full h-full transform -rotate-90" aria-hidden="true">
             <circle
               cx="50%"
               cy="50%"
@@ -86,7 +80,6 @@ export const ActiveSessionScreen: React.FC = () => {
               strokeWidth="10"
               fill="none"
             />
-            {/* Animated Active Progress Circle */}
             <circle
               cx="50%"
               cy="50%"
@@ -100,7 +93,6 @@ export const ActiveSessionScreen: React.FC = () => {
             />
           </svg>
 
-          {/* Time Display Inside Circle */}
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
             <span className="font-mono text-5xl sm:text-6xl font-extrabold tracking-tight drop-shadow-md">
               {timeStr}
@@ -112,31 +104,32 @@ export const ActiveSessionScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Task Title & Info */}
         <div className="mt-6 max-w-xs space-y-1">
           <h1 className="text-xl font-bold line-clamp-2 leading-tight">{activeTask.title}</h1>
           {activeTask.notes && (
             <p className="text-xs text-emerald-100/70 line-clamp-2">{activeTask.notes}</p>
           )}
 
-          {/* Alarm Status Badge */}
           <div className="pt-2 flex justify-center">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-400/40 text-[11px] font-semibold text-emerald-200 backdrop-blur-md">
               <Bell className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-              <span>Alarm Armed • Rings over lock screen when timer ends</span>
+              <span>
+                {capabilities.continuousWhileOpen
+                  ? 'Browser alarm armed • keep Tapost open for reliable sound'
+                  : 'Browser alarm availability is limited'}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom Controls */}
       <div className="space-y-3 relative z-10 pt-4">
         <button
-          onClick={() => markTaskCompleted(activeTask.id)}
+          onClick={() => void markTaskCompleted(activeTask.id)}
           className="w-full py-4 px-4 rounded-2xl bg-white text-[#0F6E56] font-bold text-sm shadow-xl hover:bg-emerald-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
         >
           <CheckCircle2 className="w-5 h-5" />
-          <span>Complete Session Early</span>
+          <span>Complete Session Now</span>
         </button>
 
         <button
@@ -148,7 +141,6 @@ export const ActiveSessionScreen: React.FC = () => {
         </button>
       </div>
 
-      {/* Cancel Confirm Dialog Modal */}
       {showCancelConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm text-zinc-900">
           <div className="bg-white dark:bg-zinc-900 dark:text-white rounded-3xl p-6 max-w-xs w-full shadow-2xl text-center space-y-4 border border-zinc-200 dark:border-zinc-800">
@@ -165,7 +157,7 @@ export const ActiveSessionScreen: React.FC = () => {
               <button
                 onClick={() => {
                   setShowCancelConfirm(false);
-                  cancelActiveSession(activeTask.id);
+                  void cancelActiveSession(activeTask.id);
                 }}
                 className="w-full py-2.5 rounded-xl bg-[#993C1D] hover:bg-[#803117] text-white font-semibold text-xs shadow-sm"
               >

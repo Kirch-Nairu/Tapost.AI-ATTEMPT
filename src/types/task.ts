@@ -6,15 +6,16 @@ export interface Task {
   id: string;
   title: string;
   notes?: string | null;
-  reserved_start: string; // ISO timestamp
-  reserved_end: string;   // ISO timestamp
-  actual_start?: string | null; // ISO timestamp when user pressed "Start"
-  actual_end?: string | null;   // ISO timestamp when session ends (actual_start + planned duration)
+  reserved_start: string;
+  reserved_end: string;
+  actual_start?: string | null;
+  target_end?: string | null;
+  actual_end?: string | null;
   status: TaskStatus;
   alarm_sound?: AlarmSound | null;
   snooze_count?: number;
-  created_at: string;     // ISO timestamp
-  updated_at: string;     // ISO timestamp
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskFormData {
@@ -39,6 +40,6 @@ export interface CompletionStats {
   completedTasks: number;
   missedTasks: number;
   dismissedTasks: number;
-  completionRate: number; // percentage 0-100
+  completionRate: number;
   totalFocusMinutes: number;
 }

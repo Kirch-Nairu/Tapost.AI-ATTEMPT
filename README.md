@@ -1,83 +1,109 @@
-# Tapost — Task & Built-In Alarm Productivity App
+# Tapost
 
-**Tapost** (from Tagalog *"tapos"* = done, blended with *"post"*) is a task-and-alarm productivity mobile & web application.
+Tapost is a task-and-session alarm productivity app. The current runnable build is a React 19 + TypeScript + Vite web application with local persistence, a manual-start focus-session model, browser audio alarms, browser notifications, vibration where supported, history analytics, and configurable snooze/timer preferences.
 
-## Core Concept & Unique Flow
-Unlike traditional task planners where alarms must be configured separately in a phone's clock app, **Tapost builds the session alarm directly into each task**:
+## Product flow
 
-1. **Reservation**: User schedules a task with a `reserved_start` and `reserved_end` time. The task stays in a `pending` state.
-2. **Deliberate Start**: Starting a session requires a explicit manual tap on **"Start"**.
-3. **Full Planned Length**: Upon tapping Start, the timer runs for the task's full planned duration (`reserved_end - reserved_start`), regardless of when Start was tapped.
-4. **Local Session Alarm**: When the countdown completes, Tapost fires an on-screen alert, custom audio chime, vibration, and local notification.
-5. **Prompt**: The user can **Mark Done**, **Snooze** (adds 5 min), or **Dismiss**.
+1. Reserve a task with a planned start and end time.
+2. Tap **Start** deliberately when you are ready.
+3. Tapost runs the full reserved duration from the actual start time.
+4. When the countdown reaches zero, the browser runtime starts a repeating alarm and presents the alarm screen.
+5. Complete, snooze, or dismiss the session.
 
----
+Tapost permits only one active session at a time. If legacy data contains multiple active sessions, startup repair keeps the most recent active session and dismisses stale active records.
 
-## 🔔 Alarm Reliability on Task Session End — Platform Guarantees & Expo Matrix
+## Current architecture
 
-When a task session timer ends, Tapost triggers an audible alarm, repeating vibration, and a full-screen alert. The table below details which platform guarantees are **fully met out-of-the-box in Expo managed workflow** vs. **which require a native config plugin or bare workflow**:
+```text
+React screens/components
+        |
+        v
+Zustand taskStore
+   |             |
+   v             v
+TaskRepository   AlarmEngine
+   |             |
+   v             v
+localStorage     BrowserAlarmEngine
+                 |       |       |
+                 v       v       v
+              WebAudio Notification Vibration
+```
 
-| Requirement / Guarantee | Android Expo Managed | Android Bare / Notifee Plugin | iOS Expo Managed | Status & Implementation Details |
-| :--- | :--- | :--- | :--- | :--- |
-| **High Importance Channel** (`IMPORTANCE_MAX` / `HIGH`) | ✅ Fully Met | ✅ Fully Met | N/A | Created via `notificationService.ts` with custom `alarm_chime.wav` raw sound resource and max importance. |
-| **Exact Alarm Triggers under Doze Mode** (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`) | ✅ Fully Met | ✅ Fully Met | ✅ Best Effort | Declared in `app.json` permissions list. Prevents 5–15 min Doze mode delays on Android 12+. |
-| **Battery Optimization Exemption** (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | ✅ Fully Met via Intent | ✅ Fully Met via Intent | N/A | Interactive rationale modal in Settings & Session screen requesting exemption from OEM battery suppressors (Samsung, Xiaomi, etc.). |
-| **Full-Screen Activity over Lock Screen** (`android:fullScreenIntent`) | ⚠️ Config Plugin Needed | ✅ Fully Met (`Notifee.displayNotification`) | ⚠️ Banner Alert | `expo-notifications` displays heads-up alerts. Launching full-screen Intent over lock screen requires Notifee or custom Expo config plugin (`@notifee/react-native`). |
-| **Continuous Sound & Vibration Loop** | ✅ Fully Met | ✅ Fully Met | ✅ Fully Met | Audio & Vibration repeat continuously via `audioService` & `notificationService` until user taps Stop, Snooze, or Mark Done. |
-| **Alarm when App Force-Killed** | ⚠️ Best Effort via AlarmManager | ✅ Fully Met via Foreground Service | ❌ OS Restriction | iOS sandbox strictly forbids JS execution when app is force-closed. Android uses native AlarmManager exact alarm intent. |
+### State and domain
 
----
+- Zustand owns task/session application state.
+- `reserved_start` and `reserved_end` describe the planned reservation.
+- `actual_start` records when the user actually starts a session.
+- `target_end` is the current countdown deadline. It moves when a ringing session is snoozed.
+- `actual_end` is written only when the session really finishes, is dismissed, or is cancelled.
+- Focus statistics are calculated from `actual_start` to `actual_end`, not from the planned deadline.
 
-## 🛠️ Architecture & Data Layer
+This separation keeps the countdown deadline independent from historical execution data, so completing a session early does not inflate focus statistics.
 
-- **Framework**: React / React Native Expo architecture with Vite preview support
-- **State Engine**: Zustand (`stores/taskStore.ts`) with reactive tick interval & audio synth triggers
-- **Database Layer**: Isolated Repository pattern (`services/taskRepository.ts`) wrapping local SQLite / IndexedDB persistence
-- **Validation**: React Hook Form + Zod schema validation
-- **Styling**: Option A Palette (`#0F6E56` primary deep teal, `#E1F5EE` light surface, `#993C1D` coral alert accent) with NativeWind / Tailwind CSS
+### Persistence
 
----
+The current browser repository uses localStorage behind `taskRepository`.
 
-## 📱 Running on Android & iOS (Native Setup Notes)
+The repository automatically migrates the old misleading `tapost_sqlite_tasks_v1` key to `tapost_tasks_v2`. It also repairs legacy active records that stored their countdown deadline in `actual_end` by moving that value to `target_end`.
 
-### 1. Android Local Build
-To run or build locally on Android via Android Studio / Expo prebuild:
+Demo data is seeded once. Clearing tasks does not cause demo records to silently return on the next reload. The persistence boundary is intentionally isolated so a native SQLite repository can replace the browser implementation later without rewriting the screens.
+
+### Alarm engine
+
+`src/services/alarm/AlarmEngine.ts` defines the alarm platform contract.
+
+The current implementation is `BrowserAlarmEngine` and supports:
+
+- repeating Web Audio alarms while the browser runtime remains available;
+- browser notifications when the browser supports them and permission is granted;
+- vibration when the browser/device exposes the Vibration API;
+- snooze and dismissal through the Tapost UI.
+
+The browser build does **not** claim:
+
+- native exact-alarm scheduling;
+- full-screen alarm activity over the lock screen;
+- guaranteed delivery after the browser/app is fully closed;
+- Android battery-optimization exemption;
+- force-killed native alarm guarantees.
+
+See [`docs/NATIVE_ROADMAP.md`](docs/NATIVE_ROADMAP.md) for the Android/iOS adapter requirements and acceptance gate.
+
+## Screens
+
+- Home / task list
+- Add Task
+- Task Detail
+- Active Session
+- Alarm Ringing modal
+- History / analytics
+- Settings
+
+## Development
+
+Requirements: Node.js 20+ (CI uses Node 22) and npm.
+
 ```bash
-npx expo prebuild --platform android
-npx expo run:android
+npm ci
+npm run dev
 ```
 
-### 2. Android Exact Alarm Permission (`SCHEDULE_EXACT_ALARM`)
-In Android 12+ (API level 31+), Android restricts exact alarm triggers by default to optimize battery usage.
-To ensure alarms fire **precisely to the second** when a session ends, add the following to `app.json`:
-```json
-{
-  "expo": {
-    "plugins": [
-      [
-        "expo-notifications",
-        {
-          "sounds": ["./assets/alarm_chime.wav"]
-        }
-      ]
-    ],
-    "android": {
-      "permissions": [
-        "SCHEDULE_EXACT_ALARM",
-        "USE_EXACT_ALARM",
-        "VIBRATE",
-        "POST_NOTIFICATIONS"
-      ]
-    }
-  }
-}
+The Vite development server runs on port 3000.
+
+Validation commands:
+
+```bash
+npm run lint
+npm run build
 ```
 
-### 3. iOS Known Background Limitations
-On iOS, local notifications scheduled via `expo-notifications` will fire if the app is foregrounded or suspended in memory. However, if the user **force-quits** the app from the iOS App Switcher, scheduled JS intervals and local Web Audio triggers cannot execute until the app is reopened. This is a known iOS operating system sandbox constraint.
+A GitHub Actions workflow is included at `.github/workflows/ci.yml` to run installation, TypeScript checking, and the production build on pushes and pull requests when Actions are enabled for the repository.
 
----
+## AI status
 
-## 🚀 Development & Web Preview
-- **Dev Server**: `npm run dev` (Runs on http://localhost:3000)
-- **Build**: `npm run build`
+The repository still contains AI Studio/Gemini scaffolding metadata and an `@google/genai` dependency from the original prototype environment, but no production AI feature currently consumes Gemini. Do not expose a Gemini API key in the Vite client. Any future AI feature should call Gemini from a server-side or otherwise secret-safe boundary.
+
+## Native status
+
+The previous `app.json` Expo scaffold was removed because the repository did not contain Expo/React Native dependencies or the referenced native assets. Native support should be added only when a real native project and platform alarm adapter are implemented and device-tested.
