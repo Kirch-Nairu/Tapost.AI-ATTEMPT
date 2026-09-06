@@ -2,9 +2,6 @@ name: Tapost CI
 
 on:
   push:
-    branches:
-      - main
-      - KIRCH-TAPOST-CORE-HARDENING-V1
   pull_request:
 
 jobs:
