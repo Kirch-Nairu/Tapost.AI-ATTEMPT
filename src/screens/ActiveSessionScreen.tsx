@@ -32,11 +32,12 @@ export const ActiveSessionScreen: React.FC = () => {
     );
   }
 
+  const targetEnd = activeTask.target_end || activeTask.actual_end;
   let totalDurationSec = 25 * 60;
-  if (activeTask.actual_start && activeTask.actual_end) {
+  if (activeTask.actual_start && targetEnd) {
     totalDurationSec = Math.max(
       60,
-      differenceInSeconds(parseISO(activeTask.actual_end), parseISO(activeTask.actual_start)),
+      differenceInSeconds(parseISO(targetEnd), parseISO(activeTask.actual_start)),
     );
   }
 
