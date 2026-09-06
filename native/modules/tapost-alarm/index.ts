@@ -13,6 +13,7 @@ export type ScheduleResult = ScheduledAlarm & {
 };
 
 type TapostAlarmNativeModule = {
+  ensureChannel(): void;
   schedule(taskId: string, title: string, targetEndMs: number): ScheduleResult;
   cancel(taskId: string): void;
   stopPresentation(taskId: string): void;

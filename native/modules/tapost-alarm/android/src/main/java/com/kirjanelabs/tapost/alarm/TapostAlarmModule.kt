@@ -11,6 +11,10 @@ class TapostAlarmModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TapostAlarm")
 
+    Function("ensureChannel") {
+      TapostAlarmReceiver.ensureChannel(context())
+    }
+
     Function("schedule") { taskId: String, title: String, targetEndMs: Double ->
       val result = TapostAlarmScheduler.schedule(
         context(),

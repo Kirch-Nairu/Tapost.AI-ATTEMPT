@@ -23,27 +23,8 @@ class TapostAlarmReceiver : BroadcastReceiver() {
 
   private fun postAlarmNotification(context: Context, taskId: String, title: String) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-      ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val audioAttributes = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_ALARM)
-        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-        .build()
-      val channel = NotificationChannel(
-        CHANNEL_ID,
-        "Tapost session alarms",
-        NotificationManager.IMPORTANCE_HIGH,
-      ).apply {
-        description = "Audible alarms for active Tapost sessions"
-        enableVibration(true)
-        vibrationPattern = longArrayOf(0, 500, 250, 500, 250, 900)
-        setSound(alarmSound, audioAttributes)
-        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-      }
-      manager.createNotificationChannel(channel)
-    }
+    ensureChannel(context)
+    val alarmSound = alarmSound()
 
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
       data = Uri.parse("tapost://alarm/${Uri.encode(taskId)}")
@@ -65,11 +46,12 @@ class TapostAlarmReceiver : BroadcastReceiver() {
       Notification.Builder(context)
         .setPriority(Notification.PRIORITY_MAX)
         .setSound(alarmSound)
-        .setVibrate(longArrayOf(0, 500, 250, 500, 250, 900))
+        .setVibrate(VIBRATION_PATTERN)
     }
 
+    val icon = context.applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.ic_lock_idle_alarm
     val notification = builder
-      .setSmallIcon(context.applicationInfo.icon)
+      .setSmallIcon(icon)
       .setContentTitle("Time's up: $title")
       .setContentText("Open Tapost to snooze, dismiss, or complete this session.")
       .setCategory(Notification.CATEGORY_ALARM)
@@ -79,10 +61,40 @@ class TapostAlarmReceiver : BroadcastReceiver() {
       .apply { if (contentIntent != null) setContentIntent(contentIntent) }
       .build()
 
-    manager.notify(TapostAlarmScheduler.notificationId(taskId), notification)
+    try {
+      manager.notify(TapostAlarmScheduler.notificationId(taskId), notification)
+    } catch (_: SecurityException) {
+      // Android 13+ may deny POST_NOTIFICATIONS. The native alarm still fired;
+      // the UI reports the denied permission instead of pretending notification delivery.
+    }
   }
 
   companion object {
     const val CHANNEL_ID = "tapost_session_alarm_v1"
+    private val VIBRATION_PATTERN = longArrayOf(0, 500, 250, 500, 250, 900)
+
+    private fun alarmSound(): Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+      ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+    fun ensureChannel(context: Context) {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+      val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      val audioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ALARM)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
+      val channel = NotificationChannel(
+        CHANNEL_ID,
+        "Tapost session alarms",
+        NotificationManager.IMPORTANCE_HIGH,
+      ).apply {
+        description = "Audible alarms for active Tapost sessions"
+        enableVibration(true)
+        vibrationPattern = VIBRATION_PATTERN
+        setSound(alarmSound(), audioAttributes)
+        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+      }
+      manager.createNotificationChannel(channel)
+    }
   }
 }

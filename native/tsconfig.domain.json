@@ -8,5 +8,11 @@
     "outDir": ".domain-build",
     "rootDir": "."
   },
-  "include": ["src/domain/session.ts", "src/types/task.ts"]
+  "include": [
+    "src/types/task.ts",
+    "src/domain/session.ts",
+    "src/repositories/TaskRepository.ts",
+    "src/services/alarm/AlarmEngine.ts",
+    "src/controllers/SessionController.ts"
+  ]
 }
