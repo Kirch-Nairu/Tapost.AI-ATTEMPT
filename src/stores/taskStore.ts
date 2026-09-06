@@ -39,7 +39,7 @@ let timerInterval: number | null = null;
 let missedSweepInterval: number | null = null;
 let missedSweepRunning = false;
 
-function clearRuntimeIntervals() {
+function clearRuntimeIntervals(): void {
   if (timerInterval !== null) {
     clearInterval(timerInterval);
     timerInterval = null;
@@ -55,6 +55,20 @@ function getTaskSortTime(task: Task): number {
   const value = task.actual_start || task.updated_at || task.created_at;
   const parsed = new Date(value).getTime();
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getTargetEndMs(task: Task): number | null {
+  const value = task.target_end || (task.status === 'active' ? task.actual_end : null);
+  if (!value) return null;
+
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getEffectiveFinishIso(task: Task, nowMs = Date.now()): string {
+  const targetEndMs = getTargetEndMs(task);
+  const finishMs = targetEndMs !== null && targetEndMs <= nowMs ? targetEndMs : nowMs;
+  return new Date(finishMs).toISOString();
 }
 
 export const useTaskStore = create<TaskStoreState>((set, get) => ({
@@ -83,17 +97,32 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
       const settings = await taskRepository.getSettings();
 
-      // Repair legacy/corrupt state where more than one task was persisted as active.
+      // Migrate legacy active records where actual_end was used as the timer deadline.
+      let migratedLegacyActive = false;
+      for (const task of loadedTasks) {
+        if (task.status === 'active' && !task.target_end && task.actual_end) {
+          await taskRepository.updateTask(task.id, {
+            target_end: task.actual_end,
+            actual_end: null,
+          });
+          migratedLegacyActive = true;
+        }
+      }
+
+      if (migratedLegacyActive) {
+        loadedTasks = await taskRepository.getAllTasks();
+      }
+
       const activeTasks = loadedTasks
         .filter((task) => task.status === 'active')
         .sort((a, b) => getTaskSortTime(b) - getTaskSortTime(a));
 
       if (activeTasks.length > 1) {
-        const nowIso = new Date().toISOString();
+        const nowMs = Date.now();
         for (const staleTask of activeTasks.slice(1)) {
           await taskRepository.updateTask(staleTask.id, {
             status: 'dismissed',
-            actual_end: staleTask.actual_start ? nowIso : staleTask.actual_end,
+            actual_end: staleTask.actual_start ? getEffectiveFinishIso(staleTask, nowMs) : staleTask.actual_end,
           });
         }
         loadedTasks = await taskRepository.getAllTasks();
@@ -103,19 +132,20 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         .filter((task) => task.status === 'active')
         .sort((a, b) => getTaskSortTime(b) - getTaskSortTime(a))[0];
 
-      let activeId: string | null = activeTask?.id || null;
+      const activeId = activeTask?.id || null;
       let remaining = 0;
       let ringingTaskId: string | null = null;
 
-      if (activeTask?.actual_end) {
-        const endMs = new Date(activeTask.actual_end).getTime();
-        const diffSec = Math.ceil((endMs - Date.now()) / 1000);
-
-        if (diffSec > 0) {
-          remaining = diffSec;
-        } else {
-          ringingTaskId = activeTask.id;
-          alarmEngine.start(activeTask, settings);
+      if (activeTask) {
+        const targetEndMs = getTargetEndMs(activeTask);
+        if (targetEndMs !== null) {
+          const diffSec = Math.ceil((targetEndMs - Date.now()) / 1000);
+          if (diffSec > 0) {
+            remaining = diffSec;
+          } else {
+            ringingTaskId = activeTask.id;
+            alarmEngine.start(activeTask, settings);
+          }
         }
       }
 
@@ -137,12 +167,12 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         const currentActive = state.tasks.find(
           (task) => task.id === state.activeTaskId && task.status === 'active',
         );
+        if (!currentActive) return;
 
-        if (!currentActive?.actual_end) return;
+        const targetEndMs = getTargetEndMs(currentActive);
+        if (targetEndMs === null) return;
 
-        const endMs = new Date(currentActive.actual_end).getTime();
-        const leftSec = Math.ceil((endMs - Date.now()) / 1000);
-
+        const leftSec = Math.ceil((targetEndMs - Date.now()) / 1000);
         if (leftSec <= 0) {
           set({ activeRemainingSeconds: 0, ringingTaskId: currentActive.id });
           alarmEngine.start(currentActive, state.settings);
@@ -152,7 +182,6 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         set({ activeRemainingSeconds: leftSec });
       }, 1000);
 
-      // Missed-task detection does not need to run at animation/countdown frequency.
       missedSweepInterval = window.setInterval(() => {
         void get().checkAndMarkMissedTasks();
       }, 30_000);
@@ -200,10 +229,11 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
       ? Math.max(60_000, rawPlannedDurationMs)
       : 60_000;
 
-    const actualEndIso = new Date(nowMs + plannedDurationMs).toISOString();
+    const targetEndIso = new Date(nowMs + plannedDurationMs).toISOString();
     const updatedTask = await taskRepository.updateTask(taskId, {
       actual_start: nowIso,
-      actual_end: actualEndIso,
+      target_end: targetEndIso,
+      actual_end: null,
       status: 'active',
     });
 
@@ -229,11 +259,9 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
       alarmEngine.stop();
     }
 
-    const completedAt = new Date().toISOString();
     const updated = await taskRepository.updateTask(taskId, {
       status: 'completed',
-      // Completion time must describe what actually happened, not the precomputed target end.
-      actual_end: task.actual_start ? completedAt : task.actual_end,
+      actual_end: task.actual_start ? getEffectiveFinishIso(task) : task.actual_end,
     });
 
     if (!updated) return;
@@ -256,9 +284,10 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
     alarmEngine.stop();
 
     const snoozeMinutes = settings.snooze_duration_minutes || 5;
-    const newEndIso = new Date(Date.now() + snoozeMinutes * 60 * 1000).toISOString();
+    const targetEndIso = new Date(Date.now() + snoozeMinutes * 60 * 1000).toISOString();
     const updated = await taskRepository.updateTask(taskId, {
-      actual_end: newEndIso,
+      target_end: targetEndIso,
+      actual_end: null,
       status: 'active',
       snooze_count: (task.snooze_count || 0) + 1,
     });
@@ -286,7 +315,7 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
     const updated = await taskRepository.updateTask(taskId, {
       status: 'dismissed',
-      actual_end: task.actual_start ? new Date().toISOString() : task.actual_end,
+      actual_end: task.actual_start ? getEffectiveFinishIso(task) : task.actual_end,
     });
 
     if (!updated) return;
