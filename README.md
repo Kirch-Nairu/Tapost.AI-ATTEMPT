@@ -35,14 +35,17 @@ localStorage     BrowserAlarmEngine
 - Zustand owns task/session application state.
 - `reserved_start` and `reserved_end` describe the planned reservation.
 - `actual_start` records when the user actually starts a session.
-- `actual_end` records the real completion/cancellation time for finished sessions.
-- Focus statistics are calculated from real active-session timestamps.
+- `target_end` is the current countdown deadline. It moves when a ringing session is snoozed.
+- `actual_end` is written only when the session really finishes, is dismissed, or is cancelled.
+- Focus statistics are calculated from `actual_start` to `actual_end`, not from the planned deadline.
+
+This separation keeps the countdown deadline independent from historical execution data, so completing a session early does not inflate focus statistics.
 
 ### Persistence
 
 The current browser repository uses localStorage behind `taskRepository`.
 
-The repository automatically migrates the old misleading `tapost_sqlite_tasks_v1` key to `tapost_tasks_v2`.
+The repository automatically migrates the old misleading `tapost_sqlite_tasks_v1` key to `tapost_tasks_v2`. It also repairs legacy active records that stored their countdown deadline in `actual_end` by moving that value to `target_end`.
 
 Demo data is seeded once. Clearing tasks does not cause demo records to silently return on the next reload. The persistence boundary is intentionally isolated so a native SQLite repository can replace the browser implementation later without rewriting the screens.
 
