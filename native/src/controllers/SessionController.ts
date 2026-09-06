@@ -5,10 +5,10 @@ import {
   dismissSession,
   snoozeSession,
   startSession,
-} from '../domain/session.js';
-import type { TaskRepository } from '../repositories/TaskRepository.js';
-import type { AlarmEngine } from '../services/alarm/AlarmEngine.js';
-import type { Task } from '../types/task.js';
+} from '../domain/session';
+import type { TaskRepository } from '../repositories/TaskRepository';
+import type { AlarmEngine } from '../services/alarm/AlarmEngine';
+import type { Task } from '../types/task';
 
 export type RecoveryState = {
   tasks: Task[];
